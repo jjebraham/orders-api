@@ -43,6 +43,29 @@ docker compose up --build
 
 This starts PostgreSQL and the API. The API runs `alembic upgrade head` before it starts. The API is at <http://localhost:8080> (the host port is 8080 so it does not clash with other local services). Interactive docs are at <http://localhost:8080/docs>.
 
+## Demo
+
+With the stack running, `scripts/demo.sh` walks through the main behaviour: a product, an order, an idempotent retry, a `409` when stock runs out, and a cancel that is repeated without releasing stock twice.
+
+```bash
+docker compose up -d --build
+scripts/demo.sh                  # uses http://localhost:8080; set BASE_URL to change it
+```
+
+Abridged output:
+
+```
+== 2. Place an order for 1 unit with Idempotency-Key demo-1795561637
+{"id":1,"product_id":1,"quantity":1,...,"status":"reserved",...}  -> HTTP 201
+== 3. Retry the same request with the same key
+HTTP/1.1 201 Created
+idempotent-replayed: true
+== 5. Ask for 2 more units when only 1 is left (expect 409)
+{"error":{"code":"insufficient_stock","message":"Only 1 unit(s) left, requested 2",...}}  -> HTTP 409
+== 7. Cancel again: safe, and stock is not released twice
+{"id":1,...,"status":"cancelled",...}  -> HTTP 200
+```
+
 ## Run locally (without Docker)
 
 Requirements: Python 3.11. Postgres is optional, because SQLite works for local runs.
@@ -227,6 +250,7 @@ app/
   middleware.py    request-ID and access-log middleware
   logging_config.py structured JSON logging
 alembic/           migrations
+scripts/demo.sh    walkthrough against a running server
 tests/             pytest suite (Postgres in CI)
 ```
 
