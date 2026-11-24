@@ -15,7 +15,12 @@ router = APIRouter(prefix="/orders", tags=["orders"])
     status_code=status.HTTP_201_CREATED,
     response_model=OrderOut,
     responses={
-        200: {"description": "Replayed: the same key was already used (see Idempotent-Replayed)"},
+        201: {
+            "description": "Order created, or a replay of an earlier key (the response then has "
+            "the header Idempotent-Replayed: true)"
+        },
+        400: {"description": "Idempotency-Key header missing or too long"},
+        422: {"description": "Invalid body, or Idempotency-Key reused with a different body"},
         409: {"description": "Not enough stock"},
     },
 )

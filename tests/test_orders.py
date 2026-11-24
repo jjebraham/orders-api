@@ -122,3 +122,20 @@ async def test_cancelled_stock_can_be_reserved_again(client):
 
     await client.post(f"/orders/{order['id']}/cancel")
     assert (await place_order(client, "second", product["id"])).status_code == 201
+
+
+async def test_replay_after_cancel_returns_current_cancelled_state(client):
+    product = await create_product(client, stock=5)
+    first = (await place_order(client, "cancelled-then-retried", product["id"], 2)).json()
+    await client.post(f"/orders/{first['id']}/cancel")
+
+    retry = await place_order(client, "cancelled-then-retried", product["id"], 2)
+
+    assert retry.status_code == 201
+    assert retry.headers["idempotent-replayed"] == "true"
+    body = retry.json()
+    assert body["id"] == first["id"]
+    assert body["status"] == "cancelled"
+    assert body["cancelled_at"] is not None
+    # The retry must not reserve stock again after the order was cancelled.
+    assert await stock_of(client, product["id"]) == 5

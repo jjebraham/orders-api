@@ -184,11 +184,17 @@ Errors always use the same shape:
 
 Every response has an `X-Request-ID` header. Send your own to trace a request through the logs. Logs are one JSON object per line.
 
+## Scope
+
+This is a portfolio project for a fictional shop. It has **no authentication and no customer ownership checks**: anyone who can reach the API can create products, place orders and cancel any order. A real shop would need auth (for example OAuth2 or API keys) and per-customer authorization before exposing order creation and cancellation. Reservations also never expire, and there is no payment step.
+
 ## Design decisions
 
 **Why `SELECT ... FOR UPDATE` on the product row.** Stock is a number that many requests change at once. A plain `SELECT` followed by an `UPDATE` lets two requests both read `stock = 1` and both succeed. Locking the product row makes the second request wait until the first commits, then it reads the new value and gets a `409`. The lock is held only for the length of one short transaction. The service locks in a fixed order (orders before products when cancelling, products alone when reserving), so two requests cannot deadlock each other. `CHECK (stock >= 0)` in the database is a backstop: if the application logic ever had a bug, the database would refuse to oversell. I checked this: with the lock removed, the two-buyers-one-unit test fails within a few runs.
 
 **Why idempotency keys.** Clients retry. A timeout does not tell the client whether the server reserved stock, so a retry without a key can create a second order. The key is stored with the order and has a unique constraint, so the same key always maps to one order. The request body is hashed and stored too. A reused key with a different body is an error (`422`) and not a silent success. Two concurrent requests with the same key are handled by the lock: the second one re-checks for the key after it gets the lock and returns the first one's order. A unique-constraint violation is also caught as a fallback.
+
+**Replay after cancel.** A retry with the same key returns the order in its *current* state. If it was cancelled in the meantime, the retry gets `201` with `status: "cancelled"` and does not reserve stock again. The retry does not replay the original response body.
 
 **Why cancel is idempotent.** The order row is locked, and its status is checked under that lock. If it is already `cancelled`, the stock is left alone. Two cancels racing each other are serialized by the lock, so the stock comes back once.
 
